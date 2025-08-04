@@ -12,6 +12,29 @@ This implementation handles:
 - **357K BioEntities** (genes, drugs, diseases, etc.)
 - **Complex relationships** between all entities
 
+
+## Required files in root 
+<img width="344" height="421" alt="Screenshot 2025-08-04 at 4 24 55 PM" src="https://github.com/user-attachments/assets/cc942912-14a3-4af5-a7a0-eebe0a44859a" />
+
+### Config.env
+
+```
+Neo4j Database Configuration
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=*****
+NEO4J_DATABASE=medgraph
+
+# Optional: Memory and Performance Settings
+MAX_MEMORY_GB=8
+MAX_WORKERS=4
+ENABLE_PARALLEL=true
+
+# Optional: Validation Settings
+CONTINUE_ON_ERROR=true
+MAX_ERRORS_PER_BATCH=100
+```
+
 ## Quick Start
 
 ### 1. Environment Setup
@@ -52,16 +75,16 @@ cp config.env.example .env
 
 ```bash
 # Test with sample data (recommended first)
-python main.py --mode test
+python main.py --mode test --load-type entities|relationships|both
 
 # Analyze data files
-python main.py --mode analyze
+python main.py --mode analyze --load-type entities|relationships|both
 
 # Setup schema only
-python main.py --mode schema
+python main.py --mode schema --load-type entities|relationships|both
 
 # Full ingestion (WARNING: Very resource intensive!)
-python main.py --mode full
+python main.py --mode full --load-type entities|relationships|both
 ```
 
 ## Data Requirements
