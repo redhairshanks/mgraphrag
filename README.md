@@ -53,14 +53,8 @@ pip install -r requirements.txt
 Install and configure Neo4j:
 ```bash
 # Download Neo4j from https://neo4j.com/download/
-# Or use Docker:
-docker run --name neo4j-medgraph \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/your_password \
-  -e NEO4J_apoc_export_file_enabled=true \
-  -e NEO4J_apoc_import_file_enabled=true \
-  -e NEO4J_apoc_import_file_use__neo4j__config=true \
-  neo4j:latest
+Create a new project
+neo4j is default database - no need to do anything
 ```
 
 ### 3. Configuration
@@ -69,6 +63,7 @@ Copy and configure environment:
 ```bash
 cp config.env.example .env
 # Edit .env with your Neo4j credentials
+# OR can directly add to settings.py file
 ```
 
 ### 4. Run Test Ingestion
@@ -96,6 +91,7 @@ Ensure these TSV files are present in the project directory:
 - `C07_Authors.tsv` (569MB) - Author information
 - `C15_Patents.tsv` (977MB) - Patent documents
 - `C11_ClinicalTrials.tsv` (1.1GB) - Clinical trial data
+- `C23_Bioentities.tsv` - Bioentities data
 
 ### Relationship Files
 - `C02_Link_Papers_Authors.tsv` (5.3GB) - Paper-author relationships
@@ -121,7 +117,8 @@ Ensure these TSV files are present in the project directory:
 
 ### Test Mode (Recommended First)
 ```bash
-python main.py --mode test
+python main.py --mode test --load-type entities|relatinoships|both
+Can select one of entities, relationships or both for first testing them individually
 ```
 - Creates 10K record samples from each file
 - Tests complete pipeline
