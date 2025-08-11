@@ -16,10 +16,7 @@ from src.utils.neo4j_connection import Neo4jConnection
 from src.utils.tsv_reader import TSVReader
 from src.config.settings import config
 from src.validation.data_validator import validator
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from src.utils.progress_tracker import ProgressTracker
 
 
 class EntityLoader:
@@ -28,15 +25,19 @@ class EntityLoader:
     data validation, and comprehensive error handling.
     """
     
-    def __init__(self, connection: Neo4jConnection):
+    def __init__(self, connection: Neo4jConnection, logger: logging.Logger = None):
         """
         Initialize entity loader
         
         Args:
             connection: Neo4j connection instance
+            logger: Logger instance for progress reporting
         """
         self.connection = connection
         self.load_stats = {}
+        self.logger = logger or logging.getLogger(__name__)
+        self.entity_progress_tracker = None
+        self.relationship_progress_tracker = None
     
     def _prepare_batch_data(self, df: pd.DataFrame, entity_type: str) -> List[Dict[str, Any]]:
         """
@@ -295,7 +296,7 @@ class EntityLoader:
         """Load papers from C01_Papers.tsv"""
         batch_size = batch_size or config.batch_sizes.papers
         
-        logger.info(f"🏥 Loading Papers from {file_path}")
+        self.logger.info(f"🏥 Loading Papers from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -319,7 +320,7 @@ class EntityLoader:
         """Load authors from C07_Authors.tsv"""
         batch_size = batch_size or config.batch_sizes.authors
         
-        logger.info(f"👨‍⚕️ Loading Authors from {file_path}")
+        self.logger.info(f"👨‍⚕️ Loading Authors from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -336,7 +337,7 @@ class EntityLoader:
         """Load patents from C15_Patents.tsv"""
         batch_size = batch_size or config.batch_sizes.patents
         
-        logger.info(f"📜 Loading Patents from {file_path}")
+        self.logger.info(f"📜 Loading Patents from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -360,7 +361,7 @@ class EntityLoader:
         """Load clinical trials from C11_ClinicalTrials.tsv"""
         batch_size = batch_size or config.batch_sizes.clinical_trials
         
-        logger.info(f"🧪 Loading Clinical Trials from {file_path}")
+        self.logger.info(f"🧪 Loading Clinical Trials from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -389,7 +390,7 @@ class EntityLoader:
         """Load bioentities from C23_BioEntities.tsv"""
         batch_size = batch_size or config.batch_sizes.bioentities
         
-        logger.info(f"🧬 Loading BioEntities from {file_path}")
+        self.logger.info(f"🧬 Loading BioEntities from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -406,7 +407,7 @@ class EntityLoader:
         Get statistics about bioentities in the file
         Useful for understanding the data distribution
         """
-        logger.info(f"📊 Analyzing BioEntity statistics from {file_path}")
+        self.logger.info(f"📊 Analyzing BioEntity statistics from {file_path}")
         
         try:
             type_counts = {}
@@ -443,20 +444,20 @@ class EntityLoader:
                 "unique_prefixes_count": len(entity_id_prefixes)
             }
             
-            logger.info(f"✅ BioEntity statistics: {total_entities} total entities, "
+            self.logger.info(f"✅ BioEntity statistics: {total_entities} total entities, "
                        f"{len(type_counts)} unique types")
             
             return statistics
             
         except Exception as e:
-            logger.error(f"Failed to analyze bioentity statistics: {str(e)}")
+            self.logger.error(f"Failed to analyze bioentity statistics: {str(e)}")
             raise
     
     def validate_bioentity_integrity(self, file_path: Path, sample_size: int = 1000) -> Dict[str, Any]:
         """
         Validate bioentity data integrity by checking for common issues
         """
-        logger.info(f"🔍 Validating BioEntity data integrity from {file_path}")
+        self.logger.info(f"🔍 Validating BioEntity data integrity from {file_path}")
         
         try:
             validation_results = {
@@ -517,12 +518,12 @@ class EntityLoader:
             validation_score = max(0, 100 - (total_issues / validation_results["total_checked"] * 100))
             validation_results["validation_score"] = round(validation_score, 2)
             
-            logger.info(f"✅ BioEntity validation complete: {validation_score:.1f}% validation score")
+            self.logger.info(f"✅ BioEntity validation complete: {validation_score:.1f}% validation score")
             
             return validation_results
             
         except Exception as e:
-            logger.error(f"Failed to validate bioentity integrity: {str(e)}")
+            self.logger.error(f"Failed to validate bioentity integrity: {str(e)}")
             raise
     
     def load_bioentities_by_type(self, file_path: Path, entity_types: List[str], 
@@ -539,7 +540,7 @@ class EntityLoader:
         batch_size = batch_size or config.batch_sizes.bioentities
         entity_types_lower = [t.lower() for t in entity_types]
         
-        logger.info(f"🧬 Loading BioEntities of types {entity_types} from {file_path}")
+        self.logger.info(f"🧬 Loading BioEntities of types {entity_types} from {file_path}")
         
         start_time = time.time()
         total_processed = 0
@@ -558,7 +559,7 @@ class EntityLoader:
             
             with TSVReader(file_path, batch_size=batch_size) as reader:
                 file_info = reader.get_file_info()
-                logger.info(f"📊 File info: {file_info['estimated_rows']} rows, "
+                self.logger.info(f"📊 File info: {file_info['estimated_rows']} rows, "
                            f"{file_info['file_size_mb']} MB")
                 
                 # Create filtered batch generator
@@ -584,7 +585,7 @@ class EntityLoader:
                                 
                         except Exception as e:
                             total_errors += len(batch_df)
-                            logger.error(f"Error processing batch: {str(e)}")
+                            self.logger.error(f"Error processing batch: {str(e)}")
                             continue
                 
                 # Execute filtered batch loading
@@ -610,21 +611,21 @@ class EntityLoader:
                     "load_stats": load_stats
                 }
                 
-                logger.info(f"✅ Filtered BioEntity loading complete: "
+                self.logger.info(f"✅ Filtered BioEntity loading complete: "
                            f"{total_filtered}/{total_processed} records matched filter "
                            f"({result['filter_ratio']}%) in {total_time:.1f}s")
                 
                 return result
                 
         except Exception as e:
-            logger.error(f"Failed to load filtered bioentities: {str(e)}")
+            self.logger.error(f"Failed to load filtered bioentities: {str(e)}")
             raise
     
     def extract_and_load_journals(self, file_path: Path, batch_size: int = None) -> Dict[str, Any]:
         """Extract unique journals from C10_Link_Papers_Journals.tsv and load them"""
         batch_size = batch_size or config.batch_sizes.journals
         
-        logger.info(f"📚 Extracting and loading Journals from {file_path}")
+        self.logger.info(f"📚 Extracting and loading Journals from {file_path}")
         
         # First, extract unique journals
         unique_journals = set()
@@ -641,7 +642,7 @@ class EntityLoader:
                         if pd.notna(row['Journal_ISSN']) and row['Journal_ISSN'] not in unique_journals:
                             unique_journals.add(row['Journal_ISSN'])
         
-        logger.info(f"Found {len(unique_journals)} unique journals")
+        self.logger.info(f"Found {len(unique_journals)} unique journals")
         
         # Now load unique journals
         cypher_query = """
@@ -668,21 +669,30 @@ class EntityLoader:
         try:
             with TSVReader(file_path, batch_size=batch_size) as reader:
                 file_info = reader.get_file_info()
-                logger.info(f"📊 File info: {file_info['estimated_rows']} rows, "
+                self.logger.info(f"📊 File info: {file_info['estimated_rows']} rows, "
                            f"{file_info['file_size_mb']} MB")
                 
-                # Create batch generator
+                # Create batch generator with progress reporting
                 def batch_generator():
                     nonlocal total_processed, total_errors
+                    progress_interval = max(1, file_info['estimated_rows'] // 20)  # Report every 5%
                     
                     for batch_df in reader.read_batches():
                         try:
                             batch_data = self._prepare_batch_data(batch_df, entity_type)
                             total_processed += len(batch_data)
+                            
+                            # Report progress at intervals
+                            if hasattr(self, 'entity_progress_tracker') and self.entity_progress_tracker:
+                                if total_processed % progress_interval < len(batch_data):
+                                    self.entity_progress_tracker.update_file_progress(
+                                        total_processed, file_info['estimated_rows']
+                                    )
+                            
                             yield batch_data
                         except Exception as e:
                             total_errors += len(batch_df)
-                            logger.error(f"Error processing batch: {str(e)}")
+                            self.logger.error(f"Error processing batch: {str(e)}")
                             continue
                 
                 # Execute batch loading
@@ -704,14 +714,14 @@ class EntityLoader:
                     "load_stats": load_stats
                 }
                 
-                logger.info(f"✅ {entity_type} loading complete: "
+                self.logger.info(f"✅ {entity_type} loading complete: "
                            f"{total_processed} records in {total_time:.1f}s "
                            f"({result['records_per_second']:.1f} records/sec)")
                 
                 return result
                 
         except Exception as e:
-            logger.error(f"Failed to load {entity_type} from {file_path}: {str(e)}")
+            self.logger.error(f"Failed to load {entity_type} from {file_path}: {str(e)}")
             raise
     
     def _load_extracted_entities(self, source_file: Path, entity_type: str,
@@ -720,7 +730,7 @@ class EntityLoader:
         """Load entities extracted from relationship files"""
         # This is a placeholder for the journal extraction logic
         # In a real implementation, you would extract unique entities from the source file
-        logger.info(f"Loading extracted {entity_type} entities")
+        self.logger.info(f"Loading extracted {entity_type} entities")
         
         # For now, return a placeholder result
         return {
@@ -732,22 +742,36 @@ class EntityLoader:
     
     def load_all_entities(self) -> Dict[str, Any]:
         """Load all entities in the correct order"""
-        logger.info("🚀 Starting complete entity loading process")
+        self.self.logger.info("🚀 Starting complete entity loading process")
         
         loading_results = {}
         loading_order = config.get_entity_loading_order()
         
+        # Initialize progress tracker for entities
+        valid_entities = [entity for entity, path in loading_order if path is not None]
+        self.entity_progress_tracker = ProgressTracker(self.logger, len(valid_entities), "Entity Loading")
+        
         for entity_name, file_path in loading_order:
             if file_path is None:
-                logger.info(f"⏭️ Skipping {entity_name} - will be extracted from relationships")
+                self.self.logger.info(f"⏭️ Skipping {entity_name} - will be extracted from relationships")
                 continue
             
             full_path = config.paths.get_full_path(file_path)
             
             if not full_path.exists():
-                logger.warning(f"⚠️ File not found: {full_path}")
+                self.self.logger.warning(f"⚠️ File not found: {full_path}")
                 loading_results[entity_name] = {"error": "File not found"}
                 continue
+            
+            # Start progress tracking for this entity
+            from src.utils.tsv_reader import analyze_tsv_file
+            try:
+                file_analysis = analyze_tsv_file(full_path)
+                estimated_records = file_analysis.get('estimated_rows', 0)
+            except:
+                estimated_records = 0
+                
+            self.entity_progress_tracker.start_file(str(full_path), estimated_records)
             
             try:
                 if entity_name == "authors":
@@ -763,20 +787,29 @@ class EntityLoader:
                 elif entity_name == "bioentities":
                     result = self.load_bioentities(full_path)
                 else:
-                    logger.warning(f"⚠️ No loader implemented for {entity_name}")
+                    self.self.logger.warning(f"⚠️ No loader implemented for {entity_name}")
                     continue
                 
                 loading_results[entity_name] = result
                 
+                # Complete progress tracking
+                final_count = result.get('total_processed', 0)
+                self.entity_progress_tracker.complete_file(final_count, success=True)
+                
             except Exception as e:
-                logger.error(f"❌ Failed to load {entity_name}: {str(e)}")
+                self.self.logger.error(f"❌ Failed to load {entity_name}: {str(e)}")
                 loading_results[entity_name] = {"error": str(e)}
+                self.entity_progress_tracker.complete_file(0, success=False, error_msg=str(e))
         
         # Summary
         successful_loads = sum(1 for r in loading_results.values() if "error" not in r)
         total_loads = len(loading_results)
         
-        logger.info(f"🏁 Entity loading complete: {successful_loads}/{total_loads} successful")
+        # Log final progress summary
+        if self.entity_progress_tracker:
+            self.entity_progress_tracker.log_final_summary()
+        
+        self.self.logger.info(f"🏁 Entity loading complete: {successful_loads}/{total_loads} successful")
         
         return {
             "summary": {
@@ -789,22 +822,36 @@ class EntityLoader:
 
     def load_relationships(self) -> Dict[str, Any]:
         """Load all relationships in the correct order"""
-        logger.info("🔗 Starting complete relationship loading process")
+        self.self.logger.info("🔗 Starting complete relationship loading process")
         
         loading_results = {}
         relationship_order = config.get_relationship_loading_order()
         
+        # Initialize progress tracker for relationships
+        valid_relationships = [rel for rel, path in relationship_order if path is not None]
+        self.relationship_progress_tracker = ProgressTracker(self.logger, len(valid_relationships), "Relationship Loading")
+        
         for relationship_name, file_path in relationship_order:
             if file_path is None:
-                logger.warning(f"⚠️ No file path specified for {relationship_name}")
+                self.logger.warning(f"⚠️ No file path specified for {relationship_name}")
                 continue
             
             full_path = config.paths.get_full_path(file_path)
             
             if not full_path.exists():
-                logger.warning(f"⚠️ File not found: {full_path}")
+                self.logger.warning(f"⚠️ File not found: {full_path}")
                 loading_results[relationship_name] = {"error": "File not found"}
                 continue
+            
+            # Start progress tracking for this relationship
+            try:
+                from src.utils.tsv_reader import analyze_tsv_file
+                file_analysis = analyze_tsv_file(full_path)
+                estimated_records = file_analysis.get('estimated_rows', 0)
+            except:
+                estimated_records = 0
+                
+            self.relationship_progress_tracker.start_file(str(full_path), estimated_records)
             
             try:
                 if relationship_name == "AUTHORED_BY":
@@ -826,20 +873,29 @@ class EntityLoader:
                 elif relationship_name == "AFFILIATED_WITH":
                     result = self.load_affiliation_relationships(full_path)
                 else:
-                    logger.warning(f"⚠️ No loader implemented for relationship {relationship_name}")
+                    self.logger.warning(f"⚠️ No loader implemented for relationship {relationship_name}")
                     continue
                 
                 loading_results[relationship_name] = result
                 
+                # Complete progress tracking
+                final_count = result.get('total_processed', 0)
+                self.relationship_progress_tracker.complete_file(final_count, success=True)
+                
             except Exception as e:
-                logger.error(f"❌ Failed to load relationship {relationship_name}: {str(e)}")
+                self.logger.error(f"❌ Failed to load relationship {relationship_name}: {str(e)}")
                 loading_results[relationship_name] = {"error": str(e)}
+                self.relationship_progress_tracker.complete_file(0, success=False, error_msg=str(e))
         
         # Summary
         successful_loads = sum(1 for r in loading_results.values() if "error" not in r)
         total_loads = len(loading_results)
         
-        logger.info(f"🏁 Relationship loading complete: {successful_loads}/{total_loads} successful")
+        # Log final progress summary
+        if self.relationship_progress_tracker:
+            self.relationship_progress_tracker.log_final_summary()
+        
+        self.logger.info(f"🏁 Relationship loading complete: {successful_loads}/{total_loads} successful")
         
         return {
             "summary": {
@@ -854,7 +910,7 @@ class EntityLoader:
         """Load AUTHORED_BY relationships from C02_Link_Papers_Authors.tsv"""
         batch_size = batch_size or config.batch_sizes.authored_by
         
-        logger.info(f"✍️ Loading AUTHORED_BY relationships from {file_path}")
+        self.logger.info(f"✍️ Loading AUTHORED_BY relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -871,7 +927,7 @@ class EntityLoader:
         """Load MENTIONS_IN_PAPER relationships from C06_Link_Papers_BioEntities.tsv"""
         batch_size = batch_size or config.batch_sizes.mentions
         
-        logger.info(f"🧬 Loading MENTIONS_IN_PAPER relationships from {file_path}")
+        self.logger.info(f"🧬 Loading MENTIONS_IN_PAPER relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -901,7 +957,7 @@ class EntityLoader:
         """Load PUBLISHED_IN relationships from C10_Link_Papers_Journals.tsv"""
         batch_size = batch_size or config.batch_sizes.published_in
         
-        logger.info(f"📚 Loading PUBLISHED_IN relationships from {file_path}")
+        self.logger.info(f"📚 Loading PUBLISHED_IN relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -921,7 +977,7 @@ class EntityLoader:
         """Load CITES_PAPER relationships from C04_ReferenceList_Papers.tsv"""
         batch_size = batch_size or config.batch_sizes.cites
         
-        logger.info(f"📄 Loading CITES_PAPER relationships from {file_path}")
+        self.logger.info(f"📄 Loading CITES_PAPER relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -937,7 +993,7 @@ class EntityLoader:
         """Load CITES_TRIAL relationships from C12_Link_Papers_Clinicaltrials.tsv"""
         batch_size = batch_size or config.batch_sizes.cites
         
-        logger.info(f"🧪 Loading CITES_TRIAL relationships from {file_path}")
+        self.logger.info(f"🧪 Loading CITES_TRIAL relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -952,7 +1008,7 @@ class EntityLoader:
         """Load MENTIONS_IN_TRIAL relationships from C13_Link_ClinicalTrials_BioEntities.tsv"""
         batch_size = batch_size or config.batch_sizes.mentions
         
-        logger.info(f"🧬 Loading MENTIONS_IN_TRIAL relationships from {file_path}")
+        self.logger.info(f"🧬 Loading MENTIONS_IN_TRIAL relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -970,7 +1026,7 @@ class EntityLoader:
         """Load CITES_PATENT relationships from C16_Link_Patents_Papers.tsv"""
         batch_size = batch_size or config.batch_sizes.cites
         
-        logger.info(f"📜 Loading CITES_PATENT relationships from {file_path}")
+        self.logger.info(f"📜 Loading CITES_PATENT relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -985,7 +1041,7 @@ class EntityLoader:
         """Load MENTIONS_IN_PATENT relationships from C18_Link_Patents_BioEntities.tsv"""
         batch_size = batch_size or config.batch_sizes.mentions
         
-        logger.info(f"🧬 Loading MENTIONS_IN_PATENT relationships from {file_path}")
+        self.logger.info(f"🧬 Loading MENTIONS_IN_PATENT relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -1003,7 +1059,7 @@ class EntityLoader:
         """Load AFFILIATED_WITH relationships from C03_Affiliations.tsv"""
         batch_size = batch_size or config.batch_sizes.affiliated_with
         
-        logger.info(f"🏢 Loading AFFILIATED_WITH relationships from {file_path}")
+        self.logger.info(f"🏢 Loading AFFILIATED_WITH relationships from {file_path}")
         
         cypher_query = """
         UNWIND $batch AS row
@@ -1031,13 +1087,14 @@ class EntityLoader:
         try:
             with TSVReader(file_path, batch_size=batch_size) as reader:
                 file_info = reader.get_file_info()
-                logger.info(f"📊 File info: {file_info['estimated_rows']} rows, "
+                self.logger.info(f"📊 File info: {file_info['estimated_rows']} rows, "
                            f"{file_info['file_size_mb']} MB")
                 
-                # Create batch generator
+                # Create batch generator with progress reporting
                 def batch_generator():
                     nonlocal total_processed, total_errors
                     skipped_records = 0
+                    progress_interval = max(1, file_info['estimated_rows'] // 20)  # Report every 5%
                     
                     for batch_df in reader.read_batches():
                         try:
@@ -1064,13 +1121,21 @@ class EntityLoader:
                                 cleaned_batch.append(cleaned_record)
                             
                             if skipped_records > 0 and relationship_type == "AFFILIATED_WITH":
-                                logger.warning(f"⚠️  Skipped {skipped_records} records with missing IND_ID in current batch")
+                                self.logger.warning(f"⚠️  Skipped {skipped_records} records with missing IND_ID in current batch")
                             
                             total_processed += len(cleaned_batch)
+                            
+                            # Report progress at intervals
+                            if hasattr(self, 'relationship_progress_tracker') and self.relationship_progress_tracker:
+                                if total_processed % progress_interval < len(cleaned_batch):
+                                    self.relationship_progress_tracker.update_file_progress(
+                                        total_processed, file_info['estimated_rows']
+                                    )
+                            
                             yield cleaned_batch
                         except Exception as e:
                             total_errors += len(batch_df)
-                            logger.error(f"Error processing relationship batch: {str(e)}")
+                            self.logger.error(f"Error processing relationship batch: {str(e)}")
                             continue
                 
                 # Execute batch loading
@@ -1092,12 +1157,12 @@ class EntityLoader:
                     "load_stats": load_stats
                 }
                 
-                logger.info(f"✅ {relationship_type} loading complete: "
+                self.logger.info(f"✅ {relationship_type} loading complete: "
                            f"{total_processed} relationships in {total_time:.1f}s "
                            f"({result['relationships_per_second']:.1f} relationships/sec)")
                 
                 return result
                 
         except Exception as e:
-            logger.error(f"Failed to load {relationship_type} from {file_path}: {str(e)}")
+            self.logger.error(f"Failed to load {relationship_type} from {file_path}: {str(e)}")
             raise
